@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <title>Administración de Usuarios</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <style>
+        .is-invalid { border-color: #dc3545; }
+        .is-valid { border-color: #198754; }
+    </style>
+</head>
+<body class="bg-light text-dark">
+<div class="container my-4">
+    <!-- Filtros -->
+    <form id="filterForm" class="row gy-3 gx-3 align-items-end mb-4">
+        <div class="col-md-2">
+            <label for="filterId" class="form-label">ID</label>
+            <input type="number" class="form-control" id="filterId" name="id" placeholder="Ej. 5" />
+        </div>
+        <div class="col-md-4">
+            <label for="filterUsername" class="form-label">Nombre de Usuario</label>
+            <input type="text" class="form-control" id="filterUsername" name="username" placeholder="Ej. 'juanperez'" />
+        </div>
+        <div class="col-md-4">
+            <label for="filterEmail" class="form-label">Email</label>
+            <input type="email" class="form-control" id="filterEmail" name="email" placeholder="Ej. 'correo@dominio.com'" />
+        </div>
+        <div class="col-md-2 text-end">
+            <button id="buscarBtn" type="submit" class="btn btn-primary w-100">
+                <i class="bi bi-search me-1"></i> Buscar
+            </button>
+        </div>
+    </form>
+
+    <!-- Tabla de usuarios -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white text-dark">
+            <h2 class="h5 mb-0"><i class="bi bi-people-fill me-2 text-primary"></i> Lista de Usuarios</h2>
+        </div>
+        <div class="card-body bg-light text-dark">
+            <div id="usersTableContainer"></div>
+            <div id="paginationContainer" class="d-flex justify-content-center mt-4"></div>
+        </div>
+    </div>
+
+    <!-- Formulario de edición -->
+    <div id="editUserCard" class="card shadow-sm mb-4 d-none">
+        <div class="card-header bg-white text-dark">
+            <h2 class="h5 mb-0"><i class="bi bi-pencil me-2 text-primary"></i> Editar Usuario</h2>
+        </div>
+        <div class="card-body bg-light text-dark">
+            <form id="userForm" class="row gx-3 gy-3">
+                <div class="col-md-1">
+                    <label for="editId" class="form-label">ID</label>
+                    <input type="number" id="editId" class="form-control" readonly />
+                </div>
+                <div class="col-md-4">
+                    <label for="editUsername" class="form-label">Usuario</label>
+                    <input type="text" id="editUsername" class="form-control" required pattern="[a-zA-Z0-9]{4,40}" maxlength="40" />
+                    <div class="invalid-feedback" id="usernameFeedback">El usuario debe tener entre 4 y 40 caracteres alfanuméricos</div>
+                </div>
+                <div class="col-md-4">
+                    <label for="editEmail" class="form-label">Email</label>
+                    <input type="email" id="editEmail" class="form-control" required pattern="[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}" />
+                    <div class="invalid-feedback" id="emailFeedback">Ingresa un correo válido</div>
+                </div>
+                <div class="col-md-3">
+                    <label for="editEnabled" class="form-label">Activo</label>
+                    <select id="editEnabled" class="form-select" required>
+                        <option value="true">Sí</option>
+                        <option value="false">No</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <span class="form-label">Roles <span class="text-danger">*</span></span>
+                    <div class="list-group" id="rolesContainer"></div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <span class="form-label">Módulos <span class="text-danger">*</span></span>
+                    <div class="list-group" id="modulesContainer"></div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <span class="form-label">Submódulos <span class="text-danger">*</span></span>
+                    <div class="list-group" id="submodulesContainer"></div>
+                </div>
+                <div class="col-12 text-end">
+                    <button type="button" id="cancelEditBtn" class="btn btn-outline-secondary ms-2">Cancelar</button>
+                    <button type="submit" class="btn btn-success ms-2">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const apiBase = '/api/users';
+let currentPage = 0;
+let totalPages = 1;
+let currentFilters = {};
+
+let allRoles = {};
+let allModules = {};
+let allSubmodules = {};
+
+document.addEventListener('DOMContentLoaded', () => {
+    fetchAllLists();
+    loadUsers();
+
+    document.getElementById('filterForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        currentPage = 0;
+        currentFilters = {
+            id: document.getElementById('filterId').value,
+            username: document.getElementById('filterUsername').value,
+            email: document.getElementById('filterEmail').value
+        };
+        loadUsers();
+    });
+
+    document.getElementById('userForm').addEventListener('submit', saveUser);
+    document.getElementById('cancelEditBtn').addEventListener('click', hideEditForm);
+});
+
+function fetchAllLists() {
+    fetch(apiBase + '/roles').then(r => r.json()).then(data => { allRoles = data; });
+    fetch(apiBase + '/modules').then(r => r.json()).then(data => { allModules = data; });
+    fetch(apiBase + '/submodules').then(r => r.json()).then(data => { allSubmodules = data; });
+}
+
+function loadUsers() {
+    let params = new URLSearchParams({ page: currentPage, size: 20 });
+    if (currentFilters.id) params.append('id', currentFilters.id);
+    if (currentFilters.username) params.append('username', currentFilters.username);
+    if (currentFilters.email) params.append('email', currentFilters.email);
+
+    fetch(apiBase + '?' + params)
+        .then(res => res.json())
+        .then(data => {
+            renderUsersTable(data.content);
+            renderPagination(data.totalPages, data.number, data.hasNext, data.hasPrevious);
+            totalPages = data.totalPages;
+        });
+}
+
+function renderUsersTable(users) {
+    let html = '';
+    if (!users || users.length === 0) {
+        html = `<div class="text-center py-5"><h5>No se encontraron usuarios.</h5></div>`;
+    } else {
+        html = `<div class="table-responsive"><table class="table table-hover align-middle">
+            <thead><tr>
+                <th>ID</th><th>Usuario</th><th>Email</th><th>Activo</th><th>Seleccionar</th>
+            </tr></thead><tbody>`;
+        users.forEach(u => {
+            html += `<tr>
+                <td>${u.id}</td>
+                <td>${u.username}</td>
+                <td>${u.email}</td>
+                <td>${u.enabled ? 'Sí' : 'No'}</td>
+                <td><button class="btn btn-sm btn-primary" onclick="selectUser(${u.id})">Seleccionar</button></td>
+            </tr>`;
+        });
+        html += `</tbody></table></div>`;
+    }
+    document.getElementById('usersTableContainer').innerHTML = html;
+}
+
+function renderPagination(total, current, hasNext, hasPrevious) {
+    let html = '';
+    if (total > 1) {
+        html += `<ul class="pagination">`;
+        html += `<li class="page-item${!hasPrevious ? ' disabled' : ''}">
+            <a class="page-link" href="#" onclick="gotoPage(${current - 1});return false;">Anterior</a></li>`;
+        for (let i = 0; i < total; i++) {
+            html += `<li class="page-item${i === current ? ' active' : ''}">
+                <a class="page-link" href="#" onclick="gotoPage(${i});return false;">${i + 1}</a></li>`;
+        }
+        html += `<li class="page-item${!hasNext ? ' disabled' : ''}">
+            <a class="page-link" href="#" onclick="gotoPage(${current + 1});return false;">Siguiente</a></li>`;
+        html += `</ul>`;
+    }
+    document.getElementById('paginationContainer').innerHTML = html;
+}
+
+function gotoPage(page) {
+    if (page < 0 || page >= totalPages) return;
+    currentPage = page;
+    loadUsers();
+}
+
+window.selectUser = function(id) {
+    fetch(apiBase + '/' + id)
+        .then(res => res.json())
+        .then(user => showEditForm(user));
+};
+
+function showEditForm(user) {
+    document.getElementById('editUserCard').classList.remove('d-none');
+    document.getElementById('editId').value = user.id;
+    document.getElementById('editUsername').value = user.username;
+    document.getElementById('editEmail').value = user.email;
+    document.getElementById('editEnabled').value = user.enabled ? 'true' : 'false';
+
+    // Render roles
+    let rolesHtml = '';
+    for (const [rid, rname] of Object.entries(allRoles)) {
+        rolesHtml += `<label class="list-group-item">
+            <input class="form-check-input me-1" type="checkbox" value="${rid}" name="roles"
+                ${user.roles && user.roles.includes(Number(rid)) ? 'checked' : ''}> ${rname}
+        </label>`;
+    }
+    document.getElementById('rolesContainer').innerHTML = rolesHtml;
+
+    // Render modules
+    let modulesHtml = '';
+    for (const [mid, mname] of Object.entries(allModules)) {
+        modulesHtml += `<label class="list-group-item">
+            <input class="form-check-input me-1" type="checkbox" value="${mid}" name="modules"
+                ${user.modules && user.modules.includes(Number(mid)) ? 'checked' : ''}> ${mname}
+        </label>`;
+    }
+    document.getElementById('modulesContainer').innerHTML = modulesHtml;
+
+    // Render submodules
+    let submodulesHtml = '';
+    for (const [sid, sname] of Object.entries(allSubmodules)) {
+        submodulesHtml += `<label class="list-group-item">
+            <input class="form-check-input me-1" type="checkbox" value="${sid}" name="submodules"
+                ${user.submodules && user.submodules.includes(Number(sid)) ? 'checked' : ''}> ${sname}
+        </label>`;
+    }
+    document.getElementById('submodulesContainer').innerHTML = submodulesHtml;
+}
+
+function hideEditForm() {
+    document.getElementById('editUserCard').classList.add('d-none');
+}
+
+function saveUser(e) {
+    e.preventDefault();
+    const id = document.getElementById('editId').value;
+    const username = document.getElementById('editUsername').value;
+    const email = document.getElementById('editEmail').value;
+    const enabled = document.getElementById('editEnabled').value === 'true';
+
+    // Validación simple
+    if (!/^[a-zA-Z0-9]{4,40}$/.test(username)) {
+        document.getElementById('editUsername').classList.add('is-invalid');
+        return;
+    } else {
+        document.getElementById('editUsername').classList.remove('is-invalid');
+    }
+    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) {
+        document.getElementById('editEmail').classList.add('is-invalid');
+        return;
+    } else {
+        document.getElementById('editEmail').classList.remove('is-invalid');
+    }
+
+    // Obtener roles, módulos, submódulos seleccionados
+    const roles = Array.from(document.querySelectorAll('input[name="roles"]:checked')).map(cb => Number(cb.value));
+    const modules = Array.from(document.querySelectorAll('input[name="modules"]:checked')).map(cb => Number(cb.value));
+    const submodules = Array.from(document.querySelectorAll('input[name="submodules"]:checked')).map(cb => Number(cb.value));
+
+    const userDTO = { id: Number(id), username, email, enabled, roles, modules, submodules };
+
+    fetch(apiBase + '/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userDTO)
+    })
+    .then(res => {
+        if (res.ok) {
+            hideEditForm();
+            loadUsers();
+        } else {
+            alert('Error al guardar usuario');
+        }
+    });
+}
+</script>
+</body>
+</html>
